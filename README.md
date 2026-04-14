@@ -1,102 +1,36 @@
-# 🧠 Dopaminergic Reinforcement Learning
+# Dopaminergic Reinforcement Learning
 
-> A biologically-inspired Q-Learning agent modeling **Reward Prediction Error (RPE)** — the computational basis of dopamine signaling.
+En découvrant les bases du reinforcement learning, je suis tombé sur quelque chose qui m'a vraiment surpris : l'algorithme TD-learning calcule à chaque pas une quantité appelée **Reward Prediction Error (RPE)**, et cette même quantité a été mesurée expérimentalement dans le cerveau de singes par Wolfram Schultz en 1997. Les neurones dopaminergiques ne répondent pas à la récompense elle-même, mais à l'**erreur de prédiction** de cette récompense.
+
+J'ai voulu vérifier ça par moi-même en codant un agent simple et en observant ce signal au fil de l'entraînement.
 
 ---
 
-## Motivation
+## L'idée
 
-In 1997, Wolfram Schultz recorded dopamine neurons in awake monkeys during conditioning tasks and made a landmark discovery: these neurons don't fire in response to reward itself — they fire in response to the **error in predicting reward**.
-
-This Reward Prediction Error (δ) maps directly onto the **TD-error** of Temporal Difference learning:
+Le RPE (noté δ) se calcule ainsi :
 
 ```
-δ(t) = r(t) + γ · V(s') − V(s)
+δ = r + γ · V(s') − V(s)
 ```
 
-- **δ > 0** → dopamine *burst* (better than expected)  
-- **δ < 0** → dopamine *dip* (worse than expected)  
-- **δ ≈ 0** → no change in firing (exactly as predicted)
+- **δ > 0** → l'agent reçoit mieux que prévu → burst de dopamine
+- **δ < 0** → l'agent reçoit moins que prévu → chute de dopamine
+- **δ ≈ 0** → exactement ce qui était prévu → rien ne se passe
 
-This project implements a Q-Learning agent on a custom Pavlovian gridworld and tracks this signal across training, reproducing the **temporal transfer** phenomenon observed in the original monkey experiments.
+C'est exactement la règle de mise à jour du Q-Learning :
 
----
+```
+Q(s, a) += α · δ
+```
 
-## Results
-
-### Graph 1 — Learning Curve
-
-![Learning Curve](results/learning_curve.png)
-
-This graph answers a single question: **does the agent actually learn?**
-
-The x-axis is the episode number (1 to 500). The y-axis is the total reward collected per episode. The faint line shows the raw per-episode signal; the bold line is a smoothed average.
-
-Three phases are visible:
-
-- **Episodes 1–100**: the agent wanders randomly, often falls into the trap (−5), rarely finds G. Average reward ≈ 2.
-- **Episodes 100–200**: the Q-table has accumulated enough information to start making intelligent choices. The curve rises sharply.
-- **Episodes 200–500**: the agent consistently reaches G in near-optimal time. Reward plateaus around **9.79**.
+Le signal qui fait apprendre l'agent et le signal dopaminergique biologique sont donc la même chose. C'est ce que ce projet essaie de montrer visuellement.
 
 ---
 
-### Graph 2 — RPE Dynamics: the Dopamine Signal
+## L'environnement
 
-![RPE Dynamics](results/rpe_dynamics.png)
-
-This graph shows the **Reward Prediction Error δ** averaged over each episode — the direct computational analog of dopaminergic neuron firing.
-
-The shape follows three biological phases:
-
-- **Phase 1 (episodes 1–50)**: the Q-table is empty, the agent has no expectations. It receives rewards but was not predicting them → δ is small, not because it has learned, but because it expected nothing. This mirrors a naïve animal before conditioning.
-- **Phase 2 (episodes 50–200)**: the Q-table starts forming expectations. The gap between what was expected and what was received becomes large → δ peaks. This is the active learning phase, equivalent to the burst-and-dip firing pattern seen in dopamine neurons during early conditioning.
-- **Phase 3 (episodes 200–500)**: predictions become accurate. The agent is rarely surprised → δ → 0. Learning has converged.
-
-The bottom panel shows ε (epsilon) decaying over time — the agent progressively shifts from random exploration to exploiting what it has learned, analogous to the transition from exploratory to habitual behavior.
-
----
-
-### Graph 3 — Temporal Transfer of the Dopamine Signal
-
-![Temporal Transfer](results/temporal_transfer.png)
-
-This is the **key neuroscience result** of the project, directly reproducing the landmark finding of Schultz et al. (1997).
-
-Two signals are tracked episode by episode:
-- **Orange**: mean δ when the agent reaches the goal G (Unconditioned Stimulus, US)
-- **Red dashed**: mean δ when the agent enters the CS zone C (Conditioned Stimulus)
-
-Early in training, only G surprises the agent — it did not predict the reward. The CS zone C is irrelevant (flat red line).
-
-As training progresses, the agent learns that **C always precedes G**. Once this association is formed, arriving at C becomes the true surprise, while arriving at G carries no new information (it was already fully predicted). The δ signal **transfers backward in time** from the reward itself to its earliest predictor.
-
-This is the exact phenomenon Schultz observed in awake primates: dopamine neurons initially fire at juice delivery, then — after learning — fire at the light that predicted the juice, and fall silent at the juice itself.
-
----
-
-### Graph 4 — Value Function V(s) Evolution
-
-![Value Maps](results/value_maps.png)
-
-This graph shows **10 snapshots** of the state value function V(s) = maxₐ Q(s,a) across training, as heatmaps on the 5×5 grid. Warm colors = high expected future reward; cool colors = low or negative value.
-
-At episode 0, the grid is uniform — the agent knows nothing. Knowledge propagates **backward from G** one step at a time: cells adjacent to G are updated first, then their neighbors, and so on. By episode 500, every cell has its correct value and the agent follows the gradient from any position to reach G optimally.
-
-The trap X (bottom-left) consistently shows a cool color — correctly learned to avoid. The CS zone C warms up earlier than its spatial neighbors because it carries a direct reward (+0.5) in addition to its proximity to G.
-
----
-
-### Summary Dashboard
-
-![Dashboard](results/summary_dashboard.png)
-
-A single-figure overview combining all four results: learning curve (top-left), RPE dynamics (top-center), CS→US temporal transfer (top-right), and three value map snapshots at early, episode ~55, and late training (bottom row).
-
----
-
-## Environment: Pavlovian Grid
-
-A 5×5 gridworld designed to mirror classical conditioning paradigms:
+J'ai créé une grille 5×5 inspirée des paradigmes de conditionnement classique utilisés en neurosciences :
 
 ```
 S  .  .  .  .
@@ -106,74 +40,42 @@ S  .  .  .  .
 X  .  .  C  G
 ```
 
-| Cell | Role | Reward |
-|------|------|--------|
-| `S` | Start | — |
-| `G` | Goal (Unconditioned Stimulus) | +10 |
-| `C` | CS zone (Conditioned Stimulus) | +0.5 |
-| `X` | Trap | −5 |
-| `.` | Empty | −0.1 (step cost) |
+| Case | Rôle | Récompense |
+|------|------|-----------|
+| `S` | Départ | — |
+| `G` | But — Stimulus Inconditionnel (US) | +10 |
+| `C` | Zone CS — Stimulus Conditionnel | +0.5 |
+| `X` | Piège | −5 |
+| `.` | Case vide | −0.1 (coût de déplacement) |
+
+La distinction CS/US est volontaire : elle permet d'observer le **transfert temporel** du signal dopaminergique, le résultat principal du projet.
+
+Un épisode se termine quand l'agent atteint G, ou après 100 pas maximum.
 
 ---
 
-## Project Structure
+## Architecture du code
 
 ```
 dopamine-rl/
 ├── src/
-│   ├── agent.py         # DopaminergicAgent — Q-Learning with RPE tracking
-│   ├── environment.py   # PavlovianGrid — conditioning-inspired gridworld
-│   ├── train.py         # Training loop & experiment runner
-│   └── visualize.py     # Publication-quality neural plots
+│   ├── agent.py         # L'agent Q-Learning avec calcul explicite du RPE
+│   ├── environment.py   # La grille Pavlovienne
+│   ├── train.py         # Boucle d'entraînement sur 500 épisodes
+│   └── visualize.py     # Génération des graphiques
 ├── results/
-│   ├── agent.json       # Trained Q-table
-│   ├── results.json     # Full training logs
+│   ├── agent.json            # Q-table finale sauvegardée
+│   ├── results.json          # Logs complets de l'entraînement
 │   ├── learning_curve.png
 │   ├── rpe_dynamics.png
 │   ├── temporal_transfer.png
 │   ├── value_maps.png
 │   └── summary_dashboard.png
+├── requirements.txt
 └── README.md
 ```
 
----
-
-## Installation & Usage
-
-```bash
-git clone https://github.com/<your-username>/dopamine-rl.git
-cd dopamine-rl
-pip install numpy matplotlib
-```
-
-**Train the agent:**
-```bash
-cd src
-python train.py
-```
-
-**Generate plots:**
-```bash
-python visualize.py
-```
-
-**Customize hyperparameters** in `train.py`:
-```python
-run_experiment(
-    n_episodes=500,
-    alpha=0.1,      # learning rate (synaptic plasticity)
-    gamma=0.95,     # discount factor (temporal horizon)
-    epsilon=1.0,    # initial exploration rate
-)
-```
-
----
-
-## Key Concepts
-
-### Reward Prediction Error as a Learning Signal
-
-The TD-error δ is computed at every timestep:
+Le cœur du projet est dans `agent.py`. La méthode `compute_rpe()` calcule δ à chaque pas, et `update()` l'utilise pour mettre à jour la Q-table tout en enregistrant l'historique du signal.
 
 ```python
 def compute_rpe(self, state, action, reward, next_state, done):
@@ -181,30 +83,111 @@ def compute_rpe(self, state, action, reward, next_state, done):
     v_next = 0.0 if done else np.max(self.Q[next_state])
     rpe = reward + self.gamma * v_next - v_current
     return rpe
+
+def update(self, state, action, reward, next_state, done):
+    rpe = self.compute_rpe(state, action, reward, next_state, done)
+    self.Q[state, action] += self.alpha * rpe
+    self.rpe_history.append(rpe)
+    return rpe
 ```
 
-This single quantity:
-1. **Drives learning**: `Q(s,a) += α · δ`
-2. **Encodes surprise**: large |δ| = unexpected outcome
-3. **Reflects biological dopamine**: matches electrophysiology data
+---
 
-### Temporal Transfer
+## Installation
 
-As training progresses, V(CS) increases → when the agent reaches the CS zone, the RPE for the *actual* reward delivery decreases (it's now fully predicted). This is the computational explanation for why dopamine neurons transfer their response from reward to reward-predicting cues.
+```bash
+git clone https://github.com/redahsbi/dopamine-rl.git
+cd dopamine-rl
+pip install -r requirements.txt
+```
+
+**Lancer l'entraînement :**
+```bash
+cd src
+python3 train.py
+```
+
+**Générer les graphiques :**
+```bash
+python3 visualize.py
+```
 
 ---
 
-## References
+## Résultats
 
-- Schultz, W., Dayan, P., & Montague, P.R. (1997). *A neural substrate of prediction and reward.* **Science**, 275(5306), 1593–1599.
+### Graphique 1 — Courbe d'apprentissage
+
+![Learning Curve](results/learning_curve.png)
+
+La récompense moyenne par épisode sur 500 épisodes. Au début l'agent erre au hasard et tombe souvent dans le piège (récompense ≈ 2). Vers l'épisode 150-200 la courbe décolle — la Q-table a accumulé assez d'informations pour guider l'agent efficacement. Elle se stabilise autour de **9.79**, ce qui correspond au chemin optimal de 8 pas (10 − 8×0.1 = 9.2, légèrement dépassé car l'agent trouve parfois des raccourcis).
+
+---
+
+### Graphique 2 — Le signal RPE au fil de l'entraînement
+
+![RPE Dynamics](results/rpe_dynamics.png)
+
+C'est le graphique le plus intéressant biologiquement. Il montre δ moyen par épisode (rouge = δ positif / burst, bleu = δ négatif / dip) et la décroissance de ε en dessous.
+
+On observe trois phases :
+
+- **Épisodes 1–50** : la Q-table est vide, l'agent n'attend rien → peu de surprise → δ faible. Pas parce qu'il sait, mais parce qu'il n'a pas encore d'attentes.
+- **Épisodes 50–200** : les attentes commencent à se former → l'écart entre ce qui est prévu et ce qui arrive devient grand → pic de δ. C'est la phase d'apprentissage actif.
+- **Épisodes 200–500** : les prédictions deviennent précises → δ → 0. L'apprentissage converge.
+
+Le panneau du bas montre ε qui diminue de 1.0 à ~0.08 : l'agent passe progressivement de l'exploration aléatoire à l'exploitation de ce qu'il a appris.
+
+---
+
+### Graphique 3 — Transfert temporel du signal dopaminergique
+
+![Temporal Transfer](results/temporal_transfer.png)
+
+C'est le résultat principal du projet, et celui qui m'a le plus surpris.
+
+On trace deux signaux séparément :
+- **Orange** : δ moyen quand l'agent atteint G (le but, stimulus inconditionnel)
+- **Rouge pointillé** : δ moyen quand l'agent passe par la zone C (stimulus conditionnel)
+
+Au début, seul G surprend l'agent (courbe orange haute). La zone C ne l'intéresse pas.
+
+Après ~150 épisodes, l'agent a appris que **C précède toujours G**. Arriver en C devient alors la vraie nouvelle information — G n'est plus une surprise car il était déjà prédit depuis C. Le signal δ **remonte dans le temps** vers le prédicteur le plus précoce.
+
+C'est exactement ce que Schultz a observé chez le singe : au début les neurones dopaminergiques s'activent quand le jus arrive. Après conditionnement, ils s'activent quand la lumière qui précède le jus s'allume — et plus du tout quand le jus arrive.
+
+---
+
+### Graphique 4 — Évolution de la fonction de valeur V(s)
+
+![Value Maps](results/value_maps.png)
+
+10 instantanés de la fonction de valeur V(s) = maxₐ Q(s,a) au fil de l'entraînement, affichés comme des cartes de chaleur sur la grille. Les couleurs chaudes indiquent une valeur élevée (l'agent espère une grande récompense future depuis cette case), les couleurs froides une valeur basse ou négative.
+
+Au début tout est uniforme. La connaissance se propage **à rebours depuis G** : les cases voisines de G apprennent en premier, puis leurs voisines, etc. À l'épisode 500 la grille est entièrement éclairée et l'agent peut suivre le gradient de valeur depuis n'importe quelle position pour rejoindre G en 8 pas.
+
+Le piège X (coin bas-gauche) reste systématiquement froid — l'agent a appris à l'éviter.
+
+---
+
+### Dashboard récapitulatif
+
+![Dashboard](results/summary_dashboard.png)
+
+Vue d'ensemble en une seule image : courbe d'apprentissage, dynamique du RPE, transfert CS→US, et trois instantanés de la value map (début, épisode ~55, fin).
+
+---
+
+## Références
+
+- Schultz, W., Dayan, P., & Montague, P.R. (1997). *A neural substrate of prediction and reward.* Science, 275(5306), 1593–1599.
 - Sutton, R.S. & Barto, A.G. (2018). *Reinforcement Learning: An Introduction* (2nd ed.). MIT Press.
-- Dayan, P. & Abbott, L.F. (2001). *Theoretical Neuroscience.* MIT Press.
 
 ---
 
-## Author
+## Auteur
 
 **Reda Hasbi** — 1ère année, ENSEIRB-MATMECA Informatique  
 Oracle Cloud Infrastructure 2025 AI Foundations Associate
 
-*Projet réalisé en vue d'un stage à l'équipe MNEMOSYNE (Inria), dans le cadre d'un intérêt pour la modélisation cérébrale et les systèmes cognitifs intégratifs.*
+*Projet réalisé dans le cadre d'une candidature à un stage à l'équipe MNEMOSYNE (Inria Bordeaux), sur la modélisation cérébrale et les systèmes cognitifs intégratifs.*
