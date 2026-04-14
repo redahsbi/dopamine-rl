@@ -1,0 +1,165 @@
+# 🧠 Dopaminergic Reinforcement Learning
+
+> A biologically-inspired Q-Learning agent modeling **Reward Prediction Error (RPE)** — the computational basis of dopamine signaling.
+
+---
+
+## Motivation
+
+In 1997, Wolfram Schultz recorded dopamine neurons in awake monkeys during conditioning tasks and made a landmark discovery: these neurons don't fire in response to reward itself — they fire in response to the **error in predicting reward**.
+
+This Reward Prediction Error (δ) maps directly onto the **TD-error** of Temporal Difference learning:
+
+```
+δ(t) = r(t) + γ · V(s') − V(s)
+```
+
+- **δ > 0** → dopamine *burst* (better than expected)  
+- **δ < 0** → dopamine *dip* (worse than expected)  
+- **δ ≈ 0** → no change in firing (exactly as predicted)
+
+This project implements a Q-Learning agent on a custom Pavlovian gridworld and tracks this signal across training, reproducing the **temporal transfer** phenomenon observed in the original monkey experiments.
+
+---
+
+## Results
+
+### Learning Curve
+The agent converges from near-zero to near-optimal reward (~9.8/10) within ~200 episodes.
+
+![Learning Curve](results/learning_curve.png)
+
+### RPE Dynamics — The Dopamine Signal
+Early in training, large prediction errors drive learning. As the agent improves, δ → 0.
+
+![RPE Dynamics](results/rpe_dynamics.png)
+
+### Temporal Transfer of the Dopamine Signal
+**The key neuroscience result:** As training progresses, the RPE signal *transfers backward in time* — from the reward delivery state (US/goal) toward the conditioned stimulus (CS zone). This mirrors Schultz et al. (1997) exactly.
+
+![Temporal Transfer](results/temporal_transfer.png)
+
+### Value Function Evolution
+The state value map V(s) = maxₐ Q(s,a) develops from uniform to goal-directed over training.
+
+![Value Maps](results/value_maps.png)
+
+### Summary Dashboard
+![Dashboard](results/summary_dashboard.png)
+
+---
+
+## Environment: Pavlovian Grid
+
+A 5×5 gridworld designed to mirror classical conditioning paradigms:
+
+```
+S  .  .  .  .
+.  .  .  .  .
+.  .  .  .  .
+.  .  .  .  .
+X  .  .  C  G
+```
+
+| Cell | Role | Reward |
+|------|------|--------|
+| `S` | Start | — |
+| `G` | Goal (Unconditioned Stimulus) | +10 |
+| `C` | CS zone (Conditioned Stimulus) | +0.5 |
+| `X` | Trap | −5 |
+| `.` | Empty | −0.1 (step cost) |
+
+---
+
+## Project Structure
+
+```
+dopamine-rl/
+├── src/
+│   ├── agent.py         # DopaminergicAgent — Q-Learning with RPE tracking
+│   ├── environment.py   # PavlovianGrid — conditioning-inspired gridworld
+│   ├── train.py         # Training loop & experiment runner
+│   └── visualize.py     # Publication-quality neural plots
+├── results/
+│   ├── agent.json       # Trained Q-table
+│   ├── results.json     # Full training logs
+│   ├── learning_curve.png
+│   ├── rpe_dynamics.png
+│   ├── temporal_transfer.png
+│   ├── value_maps.png
+│   └── summary_dashboard.png
+└── README.md
+```
+
+---
+
+## Installation & Usage
+
+```bash
+git clone https://github.com/<your-username>/dopamine-rl.git
+cd dopamine-rl
+pip install numpy matplotlib
+```
+
+**Train the agent:**
+```bash
+cd src
+python train.py
+```
+
+**Generate plots:**
+```bash
+python visualize.py
+```
+
+**Customize hyperparameters** in `train.py`:
+```python
+run_experiment(
+    n_episodes=500,
+    alpha=0.1,      # learning rate (synaptic plasticity)
+    gamma=0.95,     # discount factor (temporal horizon)
+    epsilon=1.0,    # initial exploration rate
+)
+```
+
+---
+
+## Key Concepts
+
+### Reward Prediction Error as a Learning Signal
+
+The TD-error δ is computed at every timestep:
+
+```python
+def compute_rpe(self, state, action, reward, next_state, done):
+    v_current = self.Q[state, action]
+    v_next = 0.0 if done else np.max(self.Q[next_state])
+    rpe = reward + self.gamma * v_next - v_current
+    return rpe
+```
+
+This single quantity:
+1. **Drives learning**: `Q(s,a) += α · δ`
+2. **Encodes surprise**: large |δ| = unexpected outcome
+3. **Reflects biological dopamine**: matches electrophysiology data
+
+### Temporal Transfer
+
+As training progresses, V(CS) increases → when the agent reaches the CS zone, the RPE for the *actual* reward delivery decreases (it's now fully predicted). This is the computational explanation for why dopamine neurons transfer their response from reward to reward-predicting cues.
+
+---
+
+## References
+
+- Schultz, W., Dayan, P., & Montague, P.R. (1997). *A neural substrate of prediction and reward.* **Science**, 275(5306), 1593–1599.
+- Sutton, R.S. & Barto, A.G. (2018). *Reinforcement Learning: An Introduction* (2nd ed.). MIT Press.
+- Dayan, P. & Abbott, L.F. (2001). *Theoretical Neuroscience.* MIT Press.
+
+---
+
+## Author
+
+**Reda Hasbi** — 1ère année, ENSEIRB-MATMECA Informatique  
+Oracle Cloud Infrastructure 2025 AI Foundations Associate
+
+*Projet réalisé en vue d'un stage à l'équipe MNEMOSYNE (Inria), dans le cadre d'un intérêt pour la modélisation cérébrale et les systèmes cognitifs intégratifs.*

@@ -1,0 +1,280 @@
+"""
+Visualizations — Dopaminergic RL
+==================================
+Publication-quality plots of:
+1. Learning curve (reward over episodes)
+2. RPE dynamics — the "dopamine signal" evolution
+3. Temporal transfer: RPE shifts from goal (US) → CS zone over training
+4. Value map heatmaps at different training stages
+5. Epsilon decay (exploration → exploitation transition)
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+from matplotlib.colors import LinearSegmentedColormap
+import json
+import os
+
+
+# Custom colormap: blue (negative RPE / dip) → white → orange (positive RPE / burst)
+DOPAMINE_CMAP = LinearSegmentedColormap.from_list(
+    "dopamine",
+    ["#2166ac", "#f7f7f7", "#d6604d"],
+    N=256
+)
+
+NEURAL_PALETTE = {
+    "burst":   "#e05c2e",   # positive RPE (dopamine burst)
+    "dip":     "#3a7fc1",   # negative RPE (dopamine dip)
+    "neutral": "#8fbcb0",   # near-zero RPE
+    "reward":  "#f0a500",
+    "bg":      "#0f1117",
+    "text":    "#e8eaf0",
+}
+
+
+def smooth(arr, window=20):
+    kernel = np.ones(window) / window
+    return np.convolve(arr, kernel, mode="valid")
+
+
+def plot_all(results_path: str = "../results/results.json", save_dir: str = "../results"):
+    with open(results_path) as f:
+        results = json.load(f)
+
+    os.makedirs(save_dir, exist_ok=True)
+
+    _plot_learning_curve(results, save_dir)
+    _plot_rpe_dynamics(results, save_dir)
+    _plot_temporal_transfer(results, save_dir)
+    _plot_value_maps(results, save_dir)
+    _plot_summary_dashboard(results, save_dir)
+    print(f"✓ All plots saved to {save_dir}/")
+
+
+def _plot_learning_curve(results, save_dir):
+    fig, ax = plt.subplots(figsize=(10, 4), facecolor=NEURAL_PALETTE["bg"])
+    ax.set_facecolor(NEURAL_PALETTE["bg"])
+
+    rewards = np.array(results["episode_rewards"])
+    episodes = np.arange(len(rewards))
+
+    ax.plot(episodes, rewards, alpha=0.2, color=NEURAL_PALETTE["neutral"], linewidth=0.8)
+    ax.plot(np.arange(len(smooth(rewards))), smooth(rewards),
+            color=NEURAL_PALETTE["reward"], linewidth=2.5, label="Smoothed reward")
+
+    ax.axhline(0, color="#444", linewidth=0.8, linestyle="--")
+    ax.set_xlabel("Episode", color=NEURAL_PALETTE["text"], fontsize=12)
+    ax.set_ylabel("Total Reward", color=NEURAL_PALETTE["text"], fontsize=12)
+    ax.set_title("Learning Curve — Agent Performance Over Training", 
+                 color=NEURAL_PALETTE["text"], fontsize=14, pad=15)
+    ax.tick_params(colors=NEURAL_PALETTE["text"])
+    for spine in ax.spines.values():
+        spine.set_edgecolor("#333")
+    ax.legend(facecolor="#1a1d26", labelcolor=NEURAL_PALETTE["text"])
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, "learning_curve.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def _plot_rpe_dynamics(results, save_dir):
+    fig, axes = plt.subplots(2, 1, figsize=(12, 7), facecolor=NEURAL_PALETTE["bg"])
+
+    rpe = np.array(results["mean_rpe_per_episode"])
+    episodes = np.arange(len(rpe))
+
+    ax = axes[0]
+    ax.set_facecolor(NEURAL_PALETTE["bg"])
+    ax.fill_between(episodes, rpe, 0,
+                    where=rpe >= 0, color=NEURAL_PALETTE["burst"], alpha=0.6, label="Burst (δ > 0)")
+    ax.fill_between(episodes, rpe, 0,
+                    where=rpe < 0, color=NEURAL_PALETTE["dip"], alpha=0.6, label="Dip (δ < 0)")
+    ax.plot(np.arange(len(smooth(rpe))), smooth(rpe), color="white", linewidth=1.5)
+    ax.axhline(0, color="#555", linewidth=0.8)
+    ax.set_ylabel("Mean RPE (δ)", color=NEURAL_PALETTE["text"])
+    ax.set_title("Reward Prediction Error — The Dopamine Signal (δ = r + γV(s') − V(s))",
+                 color=NEURAL_PALETTE["text"], fontsize=13)
+    ax.tick_params(colors=NEURAL_PALETTE["text"])
+    ax.legend(facecolor="#1a1d26", labelcolor=NEURAL_PALETTE["text"])
+
+    ax2 = axes[1]
+    ax2.set_facecolor(NEURAL_PALETTE["bg"])
+    eps = np.array(results["epsilon_values"])
+    ax2.plot(episodes, eps, color=NEURAL_PALETTE["neutral"], linewidth=2)
+    ax2.set_xlabel("Episode", color=NEURAL_PALETTE["text"])
+    ax2.set_ylabel("ε (Exploration)", color=NEURAL_PALETTE["text"])
+    ax2.set_title("Exploration → Exploitation Transition (Habit Formation)",
+                  color=NEURAL_PALETTE["text"], fontsize=11)
+    ax2.tick_params(colors=NEURAL_PALETTE["text"])
+
+    for ax_ in axes:
+        for spine in ax_.spines.values():
+            spine.set_edgecolor("#333")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, "rpe_dynamics.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def _plot_temporal_transfer(results, save_dir):
+    """
+    Key neuroscience result: RPE at GOAL decreases over training (reward becomes predicted),
+    while RPE at CS increases (signal transfers to earlier predictor).
+    This mirrors the Schultz 1997 monkey experiments.
+    """
+    fig, ax = plt.subplots(figsize=(10, 5), facecolor=NEURAL_PALETTE["bg"])
+    ax.set_facecolor(NEURAL_PALETTE["bg"])
+
+    rpe_cs = np.array(results["rpe_at_cs_per_episode"])
+    rpe_goal = np.array(results["rpe_at_goal_per_episode"])
+    episodes = np.arange(len(rpe_cs))
+
+    w = min(30, len(rpe_cs) // 5)
+    ax.plot(np.arange(len(smooth(rpe_goal, w))), smooth(rpe_goal, w),
+            color=NEURAL_PALETTE["reward"], linewidth=2.5,
+            label="RPE at GOAL (reward / US) — decreases as reward becomes predicted")
+    ax.plot(np.arange(len(smooth(rpe_cs, w))), smooth(rpe_cs, w),
+            color=NEURAL_PALETTE["burst"], linewidth=2.5, linestyle="--",
+            label="RPE at CS zone (predictor) — increases as CS gains predictive value")
+
+    ax.axhline(0, color="#444", linewidth=0.8, linestyle=":")
+    ax.set_xlabel("Episode", color=NEURAL_PALETTE["text"], fontsize=12)
+    ax.set_ylabel("Mean RPE (δ)", color=NEURAL_PALETTE["text"], fontsize=12)
+    ax.set_title("Temporal Transfer of Dopamine Signal\n"
+                 "CS → US transfer mirrors Schultz et al. (1997) monkey experiments",
+                 color=NEURAL_PALETTE["text"], fontsize=13, pad=15)
+    ax.tick_params(colors=NEURAL_PALETTE["text"])
+    for spine in ax.spines.values():
+        spine.set_edgecolor("#333")
+    ax.legend(facecolor="#1a1d26", labelcolor=NEURAL_PALETTE["text"], fontsize=9)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, "temporal_transfer.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def _plot_value_maps(results, save_dir):
+    snapshots = results["value_maps"]
+    n = len(snapshots)
+    grid_size = int(np.sqrt(len(snapshots[0]["values"])))
+
+    fig, axes = plt.subplots(2, 5, figsize=(18, 7), facecolor=NEURAL_PALETTE["bg"])
+    axes = axes.flatten()
+
+    all_vals = [v for snap in snapshots for v in snap["values"]]
+    vmin, vmax = min(all_vals), max(all_vals)
+
+    for i, snap in enumerate(snapshots):
+        ax = axes[i]
+        ax.set_facecolor(NEURAL_PALETTE["bg"])
+        grid = np.array(snap["values"]).reshape(grid_size, grid_size)
+        im = ax.imshow(grid, cmap=DOPAMINE_CMAP, vmin=vmin, vmax=vmax, aspect="equal")
+        ax.set_title(f"Episode {snap['episode']}", color=NEURAL_PALETTE["text"], fontsize=9)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        # Mark special cells
+        ax.text(grid_size-1, grid_size-1, "G", ha="center", va="center",
+                color="white", fontsize=11, fontweight="bold")
+        ax.text(0, grid_size-1, "X", ha="center", va="center", color="white", fontsize=9)
+
+    fig.suptitle("Value Function V(s) Evolution — How the Agent Learns to Predict Future Reward",
+                 color=NEURAL_PALETTE["text"], fontsize=13, y=1.02)
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.015, 0.7])
+    cbar = fig.colorbar(im, cax=cbar_ax)
+    cbar.set_label("V(s)", color=NEURAL_PALETTE["text"])
+    cbar.ax.yaxis.set_tick_params(color=NEURAL_PALETTE["text"])
+    plt.setp(cbar.ax.yaxis.get_ticklabels(), color=NEURAL_PALETTE["text"])
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, "value_maps.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def _plot_summary_dashboard(results, save_dir):
+    """Single-image summary suitable for a README or paper figure."""
+    fig = plt.figure(figsize=(16, 10), facecolor=NEURAL_PALETTE["bg"])
+    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.45, wspace=0.35)
+
+    rewards = np.array(results["episode_rewards"])
+    rpe = np.array(results["mean_rpe_per_episode"])
+    rpe_cs = np.array(results["rpe_at_cs_per_episode"])
+    rpe_goal = np.array(results["rpe_at_goal_per_episode"])
+    episodes = np.arange(len(rewards))
+
+    # 1. Learning curve
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax1.set_facecolor(NEURAL_PALETTE["bg"])
+    ax1.plot(episodes, rewards, alpha=0.15, color=NEURAL_PALETTE["neutral"], lw=0.5)
+    ax1.plot(np.arange(len(smooth(rewards))), smooth(rewards),
+             color=NEURAL_PALETTE["reward"], lw=2)
+    ax1.set_title("Learning Curve", color=NEURAL_PALETTE["text"], fontsize=10)
+    ax1.set_xlabel("Episode", color=NEURAL_PALETTE["text"], fontsize=8)
+    ax1.set_ylabel("Reward", color=NEURAL_PALETTE["text"], fontsize=8)
+
+    # 2. RPE over time
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax2.set_facecolor(NEURAL_PALETTE["bg"])
+    ax2.fill_between(episodes, rpe, 0, where=rpe >= 0,
+                     color=NEURAL_PALETTE["burst"], alpha=0.7)
+    ax2.fill_between(episodes, rpe, 0, where=rpe < 0,
+                     color=NEURAL_PALETTE["dip"], alpha=0.7)
+    ax2.axhline(0, color="#555", lw=0.8)
+    ax2.set_title("RPE (δ) — Dopamine Signal", color=NEURAL_PALETTE["text"], fontsize=10)
+    ax2.set_xlabel("Episode", color=NEURAL_PALETTE["text"], fontsize=8)
+    ax2.set_ylabel("δ", color=NEURAL_PALETTE["text"], fontsize=8)
+
+    # 3. Temporal transfer
+    ax3 = fig.add_subplot(gs[0, 2])
+    ax3.set_facecolor(NEURAL_PALETTE["bg"])
+    w = min(30, len(rpe_cs) // 5)
+    ax3.plot(np.arange(len(smooth(rpe_goal, w))), smooth(rpe_goal, w),
+             color=NEURAL_PALETTE["reward"], lw=2, label="Goal (US)")
+    ax3.plot(np.arange(len(smooth(rpe_cs, w))), smooth(rpe_cs, w),
+             color=NEURAL_PALETTE["burst"], lw=2, ls="--", label="CS zone")
+    ax3.axhline(0, color="#444", lw=0.6)
+    ax3.set_title("CS→US Signal Transfer", color=NEURAL_PALETTE["text"], fontsize=10)
+    ax3.legend(facecolor="#1a1d26", labelcolor=NEURAL_PALETTE["text"], fontsize=7)
+    ax3.set_xlabel("Episode", color=NEURAL_PALETTE["text"], fontsize=8)
+
+    # 4-6. Value map snapshots (early, ep55, late)
+    snapshots = results["value_maps"]
+    grid_size = int(np.sqrt(len(snapshots[0]["values"])))
+    # Trouver le snapshot le plus proche de l'épisode 55
+    idx_55 = min(range(len(snapshots)), key=lambda i: abs(snapshots[i]["episode"] - 55))
+    indices = [0, idx_55, -1]
+    titles = ["Early training", "Episode ~55", "Late training"]
+
+    all_vals = [v for snap in snapshots for v in snap["values"]]
+    vmin, vmax = min(all_vals), max(all_vals)
+
+    for idx, (snap_idx, title) in enumerate(zip(indices, titles)):
+        ax = fig.add_subplot(gs[1, idx])
+        ax.set_facecolor(NEURAL_PALETTE["bg"])
+        snap = snapshots[snap_idx]
+        grid = np.array(snap["values"]).reshape(grid_size, grid_size)
+        im = ax.imshow(grid, cmap=DOPAMINE_CMAP, vmin=vmin, vmax=vmax)
+        ax.set_title(f"V(s) — {title}\n(ep {snap['episode']})",
+                     color=NEURAL_PALETTE["text"], fontsize=9)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.text(grid_size-1, grid_size-1, "G", ha="center", va="center",
+                color="white", fontsize=12, fontweight="bold")
+
+    fig.suptitle("Dopaminergic RL — Reward Prediction Error as a Model of Dopamine Signaling",
+                 color=NEURAL_PALETTE["text"], fontsize=14, fontweight="bold", y=1.01)
+
+    for ax in fig.get_axes():
+        ax.tick_params(colors=NEURAL_PALETTE["text"], labelsize=7)
+        for spine in ax.spines.values():
+            spine.set_edgecolor("#333")
+
+    plt.savefig(os.path.join(save_dir, "summary_dashboard.png"),
+                dpi=150, bbox_inches="tight", facecolor=NEURAL_PALETTE["bg"])
+    plt.close()
+    print("✓ Summary dashboard saved.")
+
+
+if __name__ == "__main__":
+    plot_all()
