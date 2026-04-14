@@ -191,3 +191,11 @@ Vue d'ensemble en une seule image : courbe d'apprentissage, dynamique du RPE, tr
 Oracle Cloud Infrastructure 2025 AI Foundations Associate
 
 *Projet réalisé dans le cadre d'une candidature à un stage à l'équipe MNEMOSYNE (Inria Bordeaux), sur la modélisation cérébrale et les systèmes cognitifs intégratifs.*
+
+#Pour tester rapidement :
+git clone https://github.com/redahsbi/dopamine-rl.git
+cd dopamine-rl
+pip install -r requirements.txt
+cd src
+python3 train.py
+python3 visualize.py
